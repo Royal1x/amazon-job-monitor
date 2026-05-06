@@ -176,6 +176,8 @@ Important:
 
 - GitHub Actions scheduled jobs run at most every 5 minutes
 - they cannot run every second
+- Amazon is currently returning `403 Forbidden` to GitHub-hosted runners for the scrape step
+- because of that, this repository keeps the GitHub workflow as a **manual test workflow**, not a live automatic monitor
 - this project uses `seen_jobs.json` to remember which jobs were already announced
 - the workflow automatically updates `seen_jobs.json` in your repository after each run
 
@@ -214,10 +216,7 @@ This project already includes:
 
 Once you push the project to GitHub, the workflow can run automatically.
 
-It runs:
-
-- every 5 minutes on a schedule
-- any time you manually start it from the GitHub Actions tab
+Right now it runs any time you manually start it from the GitHub Actions tab.
 
 ### 4. Run your first GitHub test
 
@@ -231,34 +230,20 @@ In your repository:
 
 That sends a labeled test WhatsApp message and phone call from GitHub Actions.
 
-### 5. Let scheduled runs watch for jobs
+### 5. Run a normal one-time monitor check
 
-After the test works, run the workflow again with `send_test_alert` turned off, or just wait for the next scheduled run.
+After the test works, run the workflow again with `send_test_alert` turned off.
 
-The first scheduled run creates the starting baseline and does not alert for jobs that are already there.
+This will try one real Amazon check from GitHub Actions.
 
-Later runs:
+If Amazon still blocks the GitHub runner, the run will show the `403 Forbidden` message in the logs.
 
-- check for new Liverpool, NY warehouse jobs
-- send WhatsApp and phone-call alerts for brand-new jobs
-- save the updated `seen_jobs.json`
+### 6. For true automatic cloud monitoring
 
-### 6. If you want fewer GitHub Actions runs
+The better next host for students is usually **Azure for Students**, because GitHub Education lists Azure student credits and says no credit card is required for eligible students:
 
-Edit the schedule in:
-
-- [amazon-job-monitor.yml](/Users/royalpoudel/Documents/Playground/.github/workflows/amazon-job-monitor.yml)
-
-This line controls the 5-minute schedule:
-
-```yaml
-- cron: "*/5 * * * *"
-```
-
-Examples:
-
-- every 10 minutes: `*/10 * * * *`
-- every 15 minutes: `*/15 * * * *`
+- [GitHub Education pack](https://education.github.com/pack)
+- [Azure for Students in the GitHub pack](https://education.github.com/pack/redeem/azure-for-students)
 
 ## Run it without your Mac using Oracle Cloud Always Free
 
