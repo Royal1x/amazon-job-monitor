@@ -1,6 +1,6 @@
 {
-  "status": "healthy",
-  "checked_at": "2026-05-07 03:07:46 UTC",
-  "last_alert_at": "2026-05-07 03:07:46 UTC",
-  "details": "GitHub restarted the Azure monitor service successfully."
+  "status": "unhealthy",
+  "checked_at": "2026-05-07 11:38:31 AM EDT",
+  "last_alert_at": "2026-05-07 11:38:31 AM EDT",
+  "details": "ssh: connect to host 40.75.28.7 port 22: Connection timed out\r "
 }
