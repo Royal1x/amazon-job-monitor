@@ -1,11 +1,14 @@
 # Amazon Warehouse Job Monitor
 
-This beginner-friendly Python project watches Amazon warehouse job listings for **Liverpool, New York**.
+This beginner-friendly Python project watches Amazon warehouse job listings for:
+
+- **Liverpool, New York**
+- **East Syracuse, New York**
 
 It will:
 
 - check Amazon automatically every second by default
-- look only for Liverpool, NY warehouse-style jobs
+- look only for Liverpool, NY and East Syracuse, NY warehouse-style jobs
 - send a **WhatsApp message**
 - place an **automated phone call**
 - avoid duplicate alerts for the same job
@@ -20,8 +23,9 @@ It will:
 - `.vscode/launch.json` - lets you run the script directly in VS Code
 - `test_twilio.py` - sends a test WhatsApp message or test call
 - `.github/workflows/amazon-job-monitor.yml` - runs the monitor on GitHub Actions
-- `oracle_vm_setup.sh` - sets up the project on an Oracle Cloud VM
+- `oracle_vm_setup.sh` - sets up the project on an Ubuntu or Debian cloud VM, including Oracle Cloud or Azure
 - `seen_jobs.json` - created automatically after the first run
+- `tests/test_main.py` - simple helper tests that do not send real alerts
 
 ## Which Amazon website it uses
 
@@ -168,6 +172,14 @@ In VS Code:
 
 VS Code will automatically read the values from `.env`.
 
+### 10. Run the helper tests
+
+These tests do not send real alerts. They only check the small Python helper logic.
+
+```bash
+python3 -m unittest discover -s tests
+```
+
 ## Run it for free on GitHub Actions
 
 This is the easiest free cloud version if you already use GitHub.
@@ -244,6 +256,47 @@ The better next host for students is usually **Azure for Students**, because Git
 
 - [GitHub Education pack](https://education.github.com/pack)
 - [Azure for Students in the GitHub pack](https://education.github.com/pack/redeem/azure-for-students)
+
+## Run it without your Mac using Azure
+
+This project is already set up to run well on an **Ubuntu Azure VM**.
+
+The same [oracle_vm_setup.sh](/Users/royalpoudel/Documents/Playground/oracle_vm_setup.sh) script works on Azure too, because it only needs a normal Ubuntu or Debian server with `sudo`.
+
+Important:
+
+- the current Azure deployment uses a **Spot VM** because the student subscription blocks many normal small VM sizes
+- Spot VMs can be evicted by Azure, so they are cheaper but a little less reliable than normal VMs
+- Twilio calls and WhatsApp messages can still cost money after your trial balance runs out
+
+### 1. Create an Ubuntu VM
+
+Create an Ubuntu VM in Azure and allow SSH access.
+
+### 2. Copy this project to the VM
+
+Copy the project folder to your server, including your `.env` file.
+
+### 3. Run the setup script on the VM
+
+```bash
+cd ~/amazon-job-monitor
+bash oracle_vm_setup.sh
+```
+
+### 4. Check that the monitor is running
+
+```bash
+sudo systemctl status amazon-job-monitor
+sudo journalctl -u amazon-job-monitor -f
+```
+
+If it is working, you should see lines like:
+
+```text
+Watching Amazon warehouse jobs in Liverpool, NY, East Syracuse, NY...
+No new jobs found
+```
 
 ## Run it without your Mac using Oracle Cloud Always Free
 
@@ -348,7 +401,7 @@ That means:
 ## What the script does
 
 1. It checks Amazon every `CHECK_INTERVAL_SECONDS` seconds.
-2. It looks for warehouse-style jobs that mention Liverpool, NY.
+2. It looks for warehouse-style jobs that mention Liverpool, NY or East Syracuse, NY.
 3. On the first successful run, it saves the current jobs as a starting baseline.
 4. Later, if a brand-new job appears, it:
    - prints the job information
@@ -378,10 +431,12 @@ Check these common issues:
 
 ## Change the settings later
 
-If you want to change the city, state, or timing later, edit these values near the top of `main.py`:
+If you want to change the watched locations later, edit `TARGET_LOCATIONS` near the top of `main.py`.
 
-- `TARGET_CITY`
-- `TARGET_STATE`
+Right now it is set to:
+
+- `("Liverpool", "NY")`
+- `("East Syracuse", "NY")`
 
 You can change the timing in either of these places:
 

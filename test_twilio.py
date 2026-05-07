@@ -8,6 +8,21 @@ from dotenv import load_dotenv
 from twilio.rest import Client
 
 
+JOB_SEARCH_PAGE_URL = "https://hiring.amazon.com/app#/jobSearch"
+
+REQUIRED_ENV_VARS = (
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_WHATSAPP_FROM",
+    "ALERT_TO_WHATSAPP",
+)
+
+CALL_ENV_VARS = (
+    "TWILIO_FROM_PHONE",
+    "ALERT_TO_PHONE",
+)
+
+
 def parse_args() -> argparse.Namespace:
     """Read easy command-line options for a beginner-friendly test alert."""
     parser = argparse.ArgumentParser(
@@ -30,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--link",
-        default="https://hiring.amazon.com/",
+        default=JOB_SEARCH_PAGE_URL,
         help="Link to include in the test alert.",
     )
     parser.add_argument(
@@ -39,6 +54,26 @@ def parse_args() -> argparse.Namespace:
         help="Also place a phone call after sending the WhatsApp test message.",
     )
     return parser.parse_args()
+
+
+def load_settings(with_call: bool) -> dict[str, str] | None:
+    """Load Twilio settings and return None with a helpful message if missing."""
+    load_dotenv()
+
+    required_names = list(REQUIRED_ENV_VARS)
+    if with_call:
+        required_names.extend(CALL_ENV_VARS)
+
+    settings = {name: os.getenv(name, "").strip() for name in required_names}
+    missing = [name for name, value in settings.items() if not value]
+    if missing:
+        print("The test alert could not run because some settings are missing.")
+        print("Add these values to your .env file first:")
+        for name in missing:
+            print(f"- {name}")
+        return None
+
+    return settings
 
 
 def build_test_message(title: str, city: str, state: str, link: str) -> str:
@@ -52,11 +87,13 @@ def build_test_message(title: str, city: str, state: str, link: str) -> str:
 def main() -> None:
     """Send a WhatsApp test alert, with an optional phone call."""
     args = parse_args()
-    load_dotenv()
+    settings = load_settings(with_call=args.with_call)
+    if not settings:
+        return
 
     client = Client(
-        os.environ["TWILIO_ACCOUNT_SID"],
-        os.environ["TWILIO_AUTH_TOKEN"],
+        settings["TWILIO_ACCOUNT_SID"],
+        settings["TWILIO_AUTH_TOKEN"],
     )
 
     message_text = build_test_message(
@@ -68,8 +105,8 @@ def main() -> None:
 
     whatsapp_message = client.messages.create(
         body=message_text,
-        from_=os.environ["TWILIO_WHATSAPP_FROM"],
-        to=os.environ["ALERT_TO_WHATSAPP"],
+        from_=settings["TWILIO_WHATSAPP_FROM"],
+        to=settings["ALERT_TO_WHATSAPP"],
     )
 
     print(f"WHATSAPP SID: {whatsapp_message.sid}")
@@ -77,8 +114,8 @@ def main() -> None:
     if args.with_call:
         call = client.calls.create(
             twiml=f"<Response><Say>{escape(message_text)}</Say></Response>",
-            from_=os.environ["TWILIO_FROM_PHONE"],
-            to=os.environ["ALERT_TO_PHONE"],
+            from_=settings["TWILIO_FROM_PHONE"],
+            to=settings["ALERT_TO_PHONE"],
         )
         print(f"CALL SID: {call.sid}")
 

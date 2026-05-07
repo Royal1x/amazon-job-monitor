@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-# This script is meant to run on an Oracle Cloud Linux VM.
+# This script is meant to run on an Ubuntu or Debian Linux VM.
+# It works well for cloud servers such as Oracle Cloud or Azure.
 # It installs Python tools, creates the virtual environment,
 # installs the project packages, and sets up systemd so the
 # job monitor starts automatically at boot.

@@ -1,0 +1,211 @@
+name: Azure VM Health Check
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      send_test_alert:
+        description: "Send a WhatsApp-only health alert test"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: azure-vm-health
+  cancel-in-progress: false
+
+env:
+  HEALTH_STATE_FILE: vm_health_state.json
+  SERVICE_NAME: amazon-job-monitor
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.AZURE_VM_SSH_PRIVATE_KEY }}" > ~/.ssh/azure_vm_key
+          chmod 600 ~/.ssh/azure_vm_key
+
+      - name: Read previous health state
+        id: previous-state
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          state_file = Path(os.environ["HEALTH_STATE_FILE"])
+          state = {
+              "status": "unknown",
+              "checked_at": None,
+              "last_alert_at": None,
+              "details": "",
+          }
+          if state_file.exists():
+              state.update(json.loads(state_file.read_text(encoding="utf-8")))
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"status={state['status']}\n")
+          PY
+
+      - name: Check Azure VM and service health
+        id: health-check
+        run: |
+          set +e
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.send_test_alert }}" = "true" ]; then
+            is_manual_test="true"
+            current_status="healthy"
+            details="Manual test alert requested from GitHub Actions."
+          else
+            is_manual_test="false"
+            ssh -i ~/.ssh/azure_vm_key \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=20 \
+              "${{ secrets.AZURE_VM_USER }}@${{ secrets.AZURE_VM_HOST }}" \
+              "if [ \"\$(systemctl is-active ${SERVICE_NAME})\" = \"active\" ]; then echo healthy; else systemctl is-active ${SERVICE_NAME}; exit 1; fi" \
+              > health_output.txt 2>&1
+            status_code=$?
+
+            if [ "${status_code}" -eq 0 ]; then
+              current_status="healthy"
+              details="The Azure VM and service responded normally."
+            else
+              current_status="unhealthy"
+              details="$(head -n 20 health_output.txt | tr '\n' ' ' | sed 's/  */ /g' | sed 's/"/\\"/g')"
+            fi
+          fi
+
+          {
+            echo "is_manual_test=${is_manual_test}"
+            echo "current_status=${current_status}"
+            echo "details<<EOF"
+            printf '%s\n' "${details}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Decide whether to send a WhatsApp alert
+        id: decision
+        run: |
+          is_manual_test="${{ steps.health-check.outputs.is_manual_test }}"
+          previous_status="${{ steps.previous-state.outputs.status }}"
+          current_status="${{ steps.health-check.outputs.current_status }}"
+
+          if [ "${is_manual_test}" = "true" ]; then
+            echo "send_alert=true" >> "${GITHUB_OUTPUT}"
+            echo "update_state=false" >> "${GITHUB_OUTPUT}"
+          elif [ "${current_status}" = "unhealthy" ] && [ "${previous_status}" != "unhealthy" ]; then
+            echo "send_alert=true" >> "${GITHUB_OUTPUT}"
+            echo "update_state=true" >> "${GITHUB_OUTPUT}"
+          elif [ "${current_status}" != "${previous_status}" ]; then
+            echo "send_alert=false" >> "${GITHUB_OUTPUT}"
+            echo "update_state=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "send_alert=false" >> "${GITHUB_OUTPUT}"
+            echo "update_state=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Send WhatsApp health alert
+        if: steps.decision.outputs.send_alert == 'true'
+        env:
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
+          ALERT_TO_WHATSAPP: ${{ secrets.ALERT_TO_WHATSAPP }}
+          AZURE_VM_HOST: ${{ secrets.AZURE_VM_HOST }}
+          IS_MANUAL_TEST: ${{ steps.health-check.outputs.is_manual_test }}
+          HEALTH_DETAILS: ${{ steps.health-check.outputs.details }}
+        run: |
+          timestamp="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+
+          if [ "${IS_MANUAL_TEST}" = "true" ]; then
+            message="TEST ALERT: Your Azure VM health-check workflow can send WhatsApp alerts. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Sent at ${timestamp}."
+          else
+            message="ALERT: Your Azure Amazon job monitor appears down. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Checked at ${timestamp}. Details: ${HEALTH_DETAILS}"
+          fi
+
+          curl -sS -X POST "https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json" \
+            --data-urlencode "To=${ALERT_TO_WHATSAPP}" \
+            --data-urlencode "From=${TWILIO_WHATSAPP_FROM}" \
+            --data-urlencode "Body=${message}" \
+            -u "${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}" > /tmp/twilio_health_alert.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          response = json.loads(Path("/tmp/twilio_health_alert.json").read_text(encoding="utf-8"))
+          sid = response.get("sid")
+          if not sid:
+              raise SystemExit("Twilio health alert did not return a message SID.")
+          print(f"Health alert WhatsApp SID: {sid}")
+          PY
+
+      - name: Update health state file
+        if: steps.decision.outputs.update_state == 'true'
+        env:
+          CURRENT_STATUS: ${{ steps.health-check.outputs.current_status }}
+          DETAILS: ${{ steps.health-check.outputs.details }}
+          SEND_ALERT: ${{ steps.decision.outputs.send_alert }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          state_file = Path(os.environ["HEALTH_STATE_FILE"])
+          now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+          current_status = os.environ["CURRENT_STATUS"]
+          details = os.environ["DETAILS"]
+          previous = {
+              "status": "unknown",
+              "checked_at": None,
+              "last_alert_at": None,
+              "details": "",
+          }
+
+          if state_file.exists():
+              previous.update(json.loads(state_file.read_text(encoding="utf-8")))
+
+          state = {
+              "status": current_status,
+              "checked_at": now,
+              "last_alert_at": previous.get("last_alert_at"),
+              "details": details,
+          }
+
+          if os.environ["SEND_ALERT"] == "true":
+              state["last_alert_at"] = now
+
+          state_file.write_text(
+              json.dumps(state, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Save updated health state
+        run: |
+          if git diff --quiet -- "${HEALTH_STATE_FILE}"; then
+            echo "Health state file did not change."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${HEALTH_STATE_FILE}"
+          git commit -m "Update Azure VM health state"
+          git push

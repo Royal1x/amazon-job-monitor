@@ -1,9 +1,9 @@
 """
-Amazon warehouse job monitor for Liverpool, New York.
+Amazon warehouse job monitor for Liverpool and East Syracuse, New York.
 
 This beginner-friendly script:
 1. Checks Amazon's hourly hiring site every few seconds.
-2. Looks for warehouse jobs in Liverpool, NY.
+2. Looks for warehouse jobs in Liverpool, NY and East Syracuse, NY.
 3. Sends a WhatsApp message and an automated phone call for brand-new jobs.
 4. Saves seen job IDs so the same job is not announced twice.
 """
@@ -33,9 +33,14 @@ JOB_SEARCH_PAGE_URL = "https://hiring.amazon.com/app#/jobSearch"
 # This Amazon page contains HTML that requests + BeautifulSoup can read.
 SEARCH_URL = "https://hiring.amazon.com/search/warehouse-jobs"
 
-# We only want jobs in this location.
-TARGET_CITY = "Liverpool"
-TARGET_STATE = "NY"
+# Keep the request timeout in one place so it is easy to adjust later.
+REQUEST_TIMEOUT_SECONDS = 15
+
+# We only want jobs in these locations.
+TARGET_LOCATIONS = (
+    ("Liverpool", "NY"),
+    ("East Syracuse", "NY"),
+)
 
 # This file stores job IDs we have already seen.
 SEEN_JOBS_FILE = Path(__file__).with_name("seen_jobs.json")
@@ -171,13 +176,30 @@ def build_job_id(title: str, location: str, link: str) -> str:
     return fallback
 
 
-def looks_like_target_job(text: str) -> bool:
-    """Return True when the text looks like a Liverpool, NY warehouse job."""
+def format_target_locations() -> str:
+    """Return a nice beginner-friendly label for the target locations."""
+    return ", ".join(f"{city}, {state}" for city, state in TARGET_LOCATIONS)
+
+
+def find_matching_location(text: str) -> Optional[str]:
+    """Return the target location label if the text matches one of our cities."""
     lowered = text.lower()
-    has_city = "liverpool" in lowered
     has_state = bool(re.search(r"\bny\b", lowered)) or "new york" in lowered
-    has_warehouse_word = any(keyword in lowered for keyword in WAREHOUSE_KEYWORDS)
-    return has_city and has_state and has_warehouse_word
+    if not has_state:
+        return None
+
+    for city, state in TARGET_LOCATIONS:
+        if city.lower() in lowered:
+            return f"{city}, {state}"
+
+    return None
+
+
+def looks_like_target_job(text: str) -> bool:
+    """Return True when the text looks like one of our target warehouse jobs."""
+    has_location = find_matching_location(text) is not None
+    has_warehouse_word = any(keyword in text.lower() for keyword in WAREHOUSE_KEYWORDS)
+    return has_location and has_warehouse_word
 
 
 def fetch_page(session: requests.Session) -> str:
@@ -187,7 +209,10 @@ def fetch_page(session: requests.Session) -> str:
     We scrape SEARCH_URL because the browser page at JOB_SEARCH_PAGE_URL is a
     JavaScript app that requests + BeautifulSoup cannot fully render.
     """
-    response = session.get(SEARCH_URL, headers=HEADERS, timeout=15)
+    response = session.get(
+        SEARCH_URL,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
     response.raise_for_status()
     return response.text
 
@@ -250,11 +275,13 @@ def extract_jobs_from_json_ld(soup: BeautifulSoup) -> List[Dict[str, str]]:
             if not looks_like_target_job(combined_text):
                 continue
 
+            matched_location = find_matching_location(combined_text) or location_text
+
             jobs.append(
                 {
-                    "id": build_job_id(title, location_text or f"{TARGET_CITY}, {TARGET_STATE}", link),
+                    "id": build_job_id(title, matched_location, link),
                     "title": title,
-                    "location": location_text or f"{TARGET_CITY}, {TARGET_STATE}",
+                    "location": matched_location,
                     "link": link,
                 }
             )
@@ -266,7 +293,7 @@ def extract_jobs_from_links(soup: BeautifulSoup) -> List[Dict[str, str]]:
     """
     Fallback parser for pages that show jobs as normal HTML cards and links.
 
-    We inspect links and the text around them, then look for Liverpool + NY.
+    We inspect links and the text around them, then look for our target cities.
     """
     jobs: List[Dict[str, str]] = []
 
@@ -307,11 +334,13 @@ def extract_jobs_from_links(soup: BeautifulSoup) -> List[Dict[str, str]]:
         title_from_text = title or "Amazon Warehouse Job"
         link = urljoin(SEARCH_URL, href)
 
+        matched_location = find_matching_location(combined_text) or format_target_locations()
+
         jobs.append(
             {
-                "id": build_job_id(title_from_text, f"{TARGET_CITY}, {TARGET_STATE}", link),
+                "id": build_job_id(title_from_text, matched_location, link),
                 "title": title_from_text,
-                "location": f"{TARGET_CITY}, {TARGET_STATE}",
+                "location": matched_location,
                 "link": link,
             }
         )
@@ -334,7 +363,7 @@ def deduplicate_jobs(jobs: List[Dict[str, str]]) -> List[Dict[str, str]]:
 
 
 def find_matching_jobs(session: requests.Session) -> List[Dict[str, str]]:
-    """Download the page and return matching Liverpool warehouse jobs."""
+    """Download the page and return matching warehouse jobs in our target cities."""
     html = fetch_page(session)
     soup = BeautifulSoup(html, "html.parser")
 
@@ -343,6 +372,13 @@ def find_matching_jobs(session: requests.Session) -> List[Dict[str, str]]:
         jobs = extract_jobs_from_links(soup)
 
     return deduplicate_jobs(jobs)
+
+
+def create_session() -> requests.Session:
+    """Create a requests session we can reuse for repeated Amazon checks."""
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    return session
 
 
 def load_twilio_settings() -> Optional[Dict[str, str]]:
@@ -560,7 +596,7 @@ def run_monitor_once() -> None:
     This mode is useful for GitHub Actions, where each run starts fresh and
     then exits.
     """
-    session = requests.Session()
+    session = create_session()
     seen_jobs = load_seen_jobs()
     twilio_settings = load_twilio_settings()
     twilio_client = create_twilio_client(twilio_settings)
@@ -581,7 +617,7 @@ def run_monitor_once() -> None:
 def parse_args() -> argparse.Namespace:
     """Read simple command-line options for local or GitHub Actions runs."""
     parser = argparse.ArgumentParser(
-        description="Monitor Amazon warehouse jobs in Liverpool, NY.",
+        description="Monitor Amazon warehouse jobs in Liverpool, NY and East Syracuse, NY.",
     )
     parser.add_argument(
         "--once",
@@ -598,7 +634,7 @@ def parse_args() -> argparse.Namespace:
 
 def monitor_jobs() -> None:
     """Main loop: keep checking the page and alert only for brand-new jobs."""
-    session = requests.Session()
+    session = create_session()
     seen_jobs = load_seen_jobs()
     twilio_settings = load_twilio_settings()
     twilio_client = create_twilio_client(twilio_settings)
@@ -610,7 +646,7 @@ def monitor_jobs() -> None:
     except Exception as error:
         print(f"Unexpected setup error: {error}")
 
-    print(f"Watching Amazon warehouse jobs in {TARGET_CITY}, {TARGET_STATE}...")
+    print(f"Watching Amazon warehouse jobs in {format_target_locations()}...")
     print(f"Main Amazon search page: {JOB_SEARCH_PAGE_URL}")
     print("Press Ctrl+C to stop.")
 
