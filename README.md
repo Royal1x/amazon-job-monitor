@@ -23,6 +23,7 @@ It will:
 - `.vscode/launch.json` - lets you run the script directly in VS Code
 - `test_twilio.py` - sends a test WhatsApp message or test call
 - `.github/workflows/amazon-job-monitor.yml` - runs the monitor on GitHub Actions
+- `.github/workflows/azure-vm-health.yml` - checks the Azure VM from outside and can auto-restart the monitor service
 - `oracle_vm_setup.sh` - sets up the project on an Ubuntu or Debian cloud VM, including Oracle Cloud or Azure
 - `seen_jobs.json` - created automatically after the first run
 - `tests/test_main.py` - simple helper tests that do not send real alerts
@@ -230,6 +231,13 @@ Once you push the project to GitHub, the workflow can run automatically.
 
 Right now it runs any time you manually start it from the GitHub Actions tab.
 
+The separate Azure health workflow can still be useful, though:
+
+- it runs outside Azure, so it can notice when your VM or monitor has trouble
+- it sends a WhatsApp warning if the Azure monitor stays down
+- if the VM is reachable, it first tries to restart the `amazon-job-monitor` service automatically
+- if that restart works, it sends a recovery WhatsApp message instead of a failure alert
+
 ### 4. Run your first GitHub test
 
 In your repository:
@@ -268,6 +276,18 @@ Important:
 - the current Azure deployment uses a **Spot VM** because the student subscription blocks many normal small VM sizes
 - Spot VMs can be evicted by Azure, so they are cheaper but a little less reliable than normal VMs
 - Twilio calls and WhatsApp messages can still cost money after your trial balance runs out
+
+### Azure auto-recovery and outage alerts
+
+This project also includes a GitHub Actions backup workflow named `Azure VM Health Check`.
+
+It checks the Azure VM from outside every 5 minutes and:
+
+- tries to restart the `amazon-job-monitor` service automatically if the VM is reachable
+- sends a WhatsApp recovery message if that auto-fix works
+- sends a WhatsApp outage alert if the monitor still looks down
+
+This is useful because the live Amazon job scraping runs on Azure, while GitHub acts like an outside watcher.
 
 ### 1. Create an Ubuntu VM
 
