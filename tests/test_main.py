@@ -1,6 +1,7 @@
 """Small beginner-friendly tests for the Amazon job monitor helpers."""
 
 import unittest
+from datetime import datetime, timezone
 
 import main
 
@@ -55,6 +56,12 @@ class MainHelpersTests(unittest.TestCase):
         deduplicated = main.deduplicate_jobs(jobs)
         self.assertEqual(len(deduplicated), 2)
         self.assertEqual([job["id"] for job in deduplicated], ["job-1", "job-2"])
+
+    def test_format_syracuse_timestamp_uses_new_york_time(self) -> None:
+        timestamp = main.format_syracuse_timestamp(
+            datetime(2026, 1, 15, 15, 30, 0, tzinfo=timezone.utc)
+        )
+        self.assertEqual(timestamp, "2026-01-15 10:30:00 AM EST")
 
 
 if __name__ == "__main__":

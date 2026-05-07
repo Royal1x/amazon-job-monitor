@@ -200,16 +200,16 @@ jobs:
           MESSAGE_TYPE: ${{ steps.final-state.outputs.message_type }}
           HEALTH_DETAILS: ${{ steps.final-state.outputs.details }}
         run: |
-          timestamp="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          timestamp="$(TZ=America/New_York date +"%Y-%m-%d %I:%M:%S %p %Z")"
 
           if [ "${MESSAGE_TYPE}" = "manual_test" ]; then
-            message="TEST ALERT: Your Azure VM health-check workflow can send WhatsApp alerts. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Sent at ${timestamp}."
+            message="TEST ALERT: Your Azure VM health-check workflow can send WhatsApp alerts. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Sent at ${timestamp} (Syracuse, NY time)."
           elif [ "${MESSAGE_TYPE}" = "auto_recovered" ]; then
-            message="RECOVERY: GitHub automatically restarted your Azure Amazon job monitor. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Checked at ${timestamp}. Details: ${HEALTH_DETAILS}"
+            message="RECOVERY: GitHub automatically restarted your Azure Amazon job monitor. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Checked at ${timestamp} (Syracuse, NY time). Details: ${HEALTH_DETAILS}"
           elif [ "${MESSAGE_TYPE}" = "recovered" ]; then
-            message="RECOVERY: Your Azure Amazon job monitor is responding normally again. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Checked at ${timestamp}."
+            message="RECOVERY: Your Azure Amazon job monitor is responding normally again. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Checked at ${timestamp} (Syracuse, NY time)."
           else
-            message="ALERT: Your Azure Amazon job monitor appears down. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Checked at ${timestamp}. Details: ${HEALTH_DETAILS}"
+            message="ALERT: Your Azure Amazon job monitor appears down. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Checked at ${timestamp} (Syracuse, NY time). Details: ${HEALTH_DETAILS}"
           fi
 
           curl -sS -X POST "https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json" \
@@ -241,9 +241,12 @@ jobs:
           import os
           from datetime import datetime, timezone
           from pathlib import Path
+          from zoneinfo import ZoneInfo
 
           state_file = Path(os.environ["HEALTH_STATE_FILE"])
-          now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+          now = datetime.now(timezone.utc).astimezone(
+              ZoneInfo("America/New_York")
+          ).strftime("%Y-%m-%d %I:%M:%S %p %Z")
           current_status = os.environ["CURRENT_STATUS"]
           details = os.environ["DETAILS"]
           previous = {

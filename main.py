@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set
 from urllib.parse import urljoin
 from xml.sax.saxutils import escape
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
@@ -56,6 +57,7 @@ ALERT_TO_WHATSAPP_ENV = "ALERT_TO_WHATSAPP"
 # This environment variable lets us change how often the script checks.
 CHECK_INTERVAL_SECONDS_ENV = "CHECK_INTERVAL_SECONDS"
 DEFAULT_CHECK_INTERVAL_SECONDS = 1
+SYRACUSE_TIMEZONE = ZoneInfo("America/New_York")
 
 # Turn these on or off if you only want one alert type later.
 SEND_WHATSAPP_ALERTS = True
@@ -443,6 +445,17 @@ def create_twilio_client(settings: Optional[Dict[str, str]]) -> Optional[Client]
         return None
 
 
+def format_syracuse_timestamp(moment: Optional[datetime] = None) -> str:
+    """Return a timestamp in Syracuse, New York time."""
+    if moment is None:
+        moment = datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+
+    local_time = moment.astimezone(SYRACUSE_TIMEZONE)
+    return local_time.strftime("%Y-%m-%d %I:%M:%S %p %Z")
+
+
 def send_whatsapp_alert(
     client: Client,
     from_whatsapp: str,
@@ -577,10 +590,11 @@ def send_test_alert() -> None:
     """Send a labeled test alert without checking Amazon jobs."""
     twilio_settings = load_twilio_settings()
     twilio_client = create_twilio_client(twilio_settings)
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = format_syracuse_timestamp()
     message = (
         "TEST ALERT: GitHub Actions can reach your Amazon job monitor. "
-        f"Sent at {timestamp}. Open Amazon job search here: {JOB_SEARCH_PAGE_URL}"
+        f"Sent at {timestamp} (Syracuse, NY time). "
+        f"Open Amazon job search here: {JOB_SEARCH_PAGE_URL}"
     )
     send_twilio_alerts(
         client=twilio_client,
