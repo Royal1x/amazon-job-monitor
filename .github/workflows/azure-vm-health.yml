@@ -212,22 +212,32 @@ jobs:
             message="ALERT: Your Azure Amazon job monitor appears down. Service: ${SERVICE_NAME}. Server: ${AZURE_VM_HOST}. Checked at ${timestamp} (Syracuse, NY time). Details: ${HEALTH_DETAILS}"
           fi
 
-          curl -sS -X POST "https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json" \
-            --data-urlencode "To=${ALERT_TO_WHATSAPP}" \
-            --data-urlencode "From=${TWILIO_WHATSAPP_FROM}" \
-            --data-urlencode "Body=${message}" \
-            -u "${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}" > /tmp/twilio_health_alert.json
+          IFS=',' read -r -a recipients <<< "${ALERT_TO_WHATSAPP}"
 
-          python - <<'PY'
-          import json
-          from pathlib import Path
+          for recipient in "${recipients[@]}"; do
+            clean_recipient="$(printf '%s' "${recipient}" | tr -d '[:space:]')"
+            if [ -z "${clean_recipient}" ]; then
+              continue
+            fi
 
-          response = json.loads(Path("/tmp/twilio_health_alert.json").read_text(encoding="utf-8"))
-          sid = response.get("sid")
-          if not sid:
-              raise SystemExit("Twilio health alert did not return a message SID.")
-          print(f"Health alert WhatsApp SID: {sid}")
-          PY
+            curl -sS -X POST "https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json" \
+              --data-urlencode "To=${clean_recipient}" \
+              --data-urlencode "From=${TWILIO_WHATSAPP_FROM}" \
+              --data-urlencode "Body=${message}" \
+              -u "${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}" > /tmp/twilio_health_alert.json
+
+            RECIPIENT="${clean_recipient}" python - <<'PY'
+            import json
+            import os
+            from pathlib import Path
+
+            response = json.loads(Path("/tmp/twilio_health_alert.json").read_text(encoding="utf-8"))
+            sid = response.get("sid")
+            if not sid:
+                raise SystemExit("Twilio health alert did not return a message SID.")
+            print(f"Health alert WhatsApp SID for {os.environ['RECIPIENT']}: {sid}")
+            PY
+          done
 
       - name: Update health state file
         if: steps.decision.outputs.update_state == 'true'

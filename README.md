@@ -103,13 +103,14 @@ Example:
 TWILIO_ACCOUNT_SID="your_account_sid"
 TWILIO_AUTH_TOKEN="your_auth_token"
 TWILIO_FROM_PHONE="+12345678901"
-ALERT_TO_PHONE="+13155551234"
+ALERT_TO_PHONE="+13155551234,+13155550000"
 TWILIO_WHATSAPP_FROM="whatsapp:+14155238886"
-ALERT_TO_WHATSAPP="whatsapp:+13155551234"
+ALERT_TO_WHATSAPP="whatsapp:+13155551234,whatsapp:+13155550000"
 CHECK_INTERVAL_SECONDS="1"
 ```
 
 Use full phone numbers like `+13155551234`.
+If you want more than one recipient, separate them with commas.
 
 For WhatsApp numbers, add the `whatsapp:` prefix.
 

@@ -383,28 +383,45 @@ def create_session() -> requests.Session:
     return session
 
 
-def load_twilio_settings() -> Optional[Dict[str, str]]:
+def split_recipients(raw_value: str) -> List[str]:
+    """Split a comma-separated list of recipients into clean values."""
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
+def add_whatsapp_prefix(phone_number: str) -> str:
+    """Return a WhatsApp-formatted recipient number."""
+    if phone_number.startswith("whatsapp:"):
+        return phone_number
+    return f"whatsapp:{phone_number}"
+
+
+def load_twilio_settings() -> Optional[Dict[str, object]]:
     """
     Read Twilio settings from environment variables.
 
     Return None if anything important is missing.
     """
     to_phone = os.getenv(ALERT_TO_PHONE_ENV, "").strip()
+    to_phone_numbers = split_recipients(to_phone)
+    raw_whatsapp_value = os.getenv(ALERT_TO_WHATSAPP_ENV, "").strip()
+    to_whatsapp_numbers = split_recipients(raw_whatsapp_value)
+    if not to_whatsapp_numbers and to_phone_numbers:
+        to_whatsapp_numbers = [
+            add_whatsapp_prefix(phone_number)
+            for phone_number in to_phone_numbers
+        ]
+
     settings = {
         "account_sid": os.getenv(TWILIO_ACCOUNT_SID_ENV, "").strip(),
         "auth_token": os.getenv(TWILIO_AUTH_TOKEN_ENV, "").strip(),
         "from_phone": os.getenv(TWILIO_FROM_PHONE_ENV, "").strip(),
-        "to_phone": to_phone,
+        "to_phone_numbers": to_phone_numbers,
         # Twilio's official Sandbox for WhatsApp uses this shared sender.
         "whatsapp_from": os.getenv(
             TWILIO_WHATSAPP_FROM_ENV,
             "whatsapp:+14155238886",
         ).strip(),
-        # By default we reuse the same destination number for WhatsApp.
-        "to_whatsapp": os.getenv(
-            ALERT_TO_WHATSAPP_ENV,
-            f"whatsapp:{to_phone}" if to_phone else "",
-        ).strip(),
+        "to_whatsapp_numbers": to_whatsapp_numbers,
     }
 
     required_keys = {
@@ -413,10 +430,10 @@ def load_twilio_settings() -> Optional[Dict[str, str]]:
     }
     if SEND_CALL_ALERTS:
         required_keys["from_phone"] = TWILIO_FROM_PHONE_ENV
-        required_keys["to_phone"] = ALERT_TO_PHONE_ENV
+        required_keys["to_phone_numbers"] = ALERT_TO_PHONE_ENV
     if SEND_WHATSAPP_ALERTS:
         required_keys["whatsapp_from"] = TWILIO_WHATSAPP_FROM_ENV
-        required_keys["to_whatsapp"] = ALERT_TO_WHATSAPP_ENV
+        required_keys["to_whatsapp_numbers"] = ALERT_TO_WHATSAPP_ENV
 
     missing = [env_name for key, env_name in required_keys.items() if not settings[key]]
     if missing:
@@ -433,7 +450,7 @@ def load_twilio_settings() -> Optional[Dict[str, str]]:
     return settings
 
 
-def create_twilio_client(settings: Optional[Dict[str, str]]) -> Optional[Client]:
+def create_twilio_client(settings: Optional[Dict[str, object]]) -> Optional[Client]:
     """Create and return a Twilio client when settings are available."""
     if not settings:
         return None
@@ -487,7 +504,7 @@ def send_call_alert(client: Client, from_phone: str, to_phone: str, message: str
 
 def send_twilio_alerts(
     client: Optional[Client],
-    settings: Optional[Dict[str, str]],
+    settings: Optional[Dict[str, object]],
     message: str,
 ) -> None:
     """Send WhatsApp and call alerts when Twilio is configured."""
@@ -496,28 +513,30 @@ def send_twilio_alerts(
         return
 
     if SEND_WHATSAPP_ALERTS:
-        try:
-            send_whatsapp_alert(
-                client=client,
-                from_whatsapp=settings["whatsapp_from"],
-                to_whatsapp=settings["to_whatsapp"],
-                message=message,
-            )
-            print("WhatsApp alert sent")
-        except Exception as error:
-            print(f"WhatsApp alert failed: {error}")
+        for to_whatsapp in settings["to_whatsapp_numbers"]:
+            try:
+                send_whatsapp_alert(
+                    client=client,
+                    from_whatsapp=settings["whatsapp_from"],
+                    to_whatsapp=to_whatsapp,
+                    message=message,
+                )
+                print(f"WhatsApp alert sent to {to_whatsapp}")
+            except Exception as error:
+                print(f"WhatsApp alert failed for {to_whatsapp}: {error}")
 
     if SEND_CALL_ALERTS:
-        try:
-            send_call_alert(
-                client=client,
-                from_phone=settings["from_phone"],
-                to_phone=settings["to_phone"],
-                message=message,
-            )
-            print("Phone call alert sent")
-        except Exception as error:
-            print(f"Phone call alert failed: {error}")
+        for to_phone_number in settings["to_phone_numbers"]:
+            try:
+                send_call_alert(
+                    client=client,
+                    from_phone=settings["from_phone"],
+                    to_phone=to_phone_number,
+                    message=message,
+                )
+                print(f"Phone call alert sent to {to_phone_number}")
+            except Exception as error:
+                print(f"Phone call alert failed for {to_phone_number}: {error}")
 
 
 def create_starting_baseline(

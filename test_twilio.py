@@ -84,6 +84,11 @@ def build_test_message(title: str, city: str, state: str, link: str) -> str:
     )
 
 
+def split_recipients(raw_value: str) -> list[str]:
+    """Split a comma-separated recipient list into clean values."""
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
 def main() -> None:
     """Send a WhatsApp test alert, with an optional phone call."""
     args = parse_args()
@@ -103,21 +108,22 @@ def main() -> None:
         link=args.link,
     )
 
-    whatsapp_message = client.messages.create(
-        body=message_text,
-        from_=settings["TWILIO_WHATSAPP_FROM"],
-        to=settings["ALERT_TO_WHATSAPP"],
-    )
-
-    print(f"WHATSAPP SID: {whatsapp_message.sid}")
+    for whatsapp_recipient in split_recipients(settings["ALERT_TO_WHATSAPP"]):
+        whatsapp_message = client.messages.create(
+            body=message_text,
+            from_=settings["TWILIO_WHATSAPP_FROM"],
+            to=whatsapp_recipient,
+        )
+        print(f"WHATSAPP SID for {whatsapp_recipient}: {whatsapp_message.sid}")
 
     if args.with_call:
-        call = client.calls.create(
-            twiml=f"<Response><Say>{escape(message_text)}</Say></Response>",
-            from_=settings["TWILIO_FROM_PHONE"],
-            to=settings["ALERT_TO_PHONE"],
-        )
-        print(f"CALL SID: {call.sid}")
+        for phone_recipient in split_recipients(settings["ALERT_TO_PHONE"]):
+            call = client.calls.create(
+                twiml=f"<Response><Say>{escape(message_text)}</Say></Response>",
+                from_=settings["TWILIO_FROM_PHONE"],
+                to=phone_recipient,
+            )
+            print(f"CALL SID for {phone_recipient}: {call.sid}")
 
 
 if __name__ == "__main__":

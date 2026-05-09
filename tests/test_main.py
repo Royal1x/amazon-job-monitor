@@ -63,6 +63,10 @@ class MainHelpersTests(unittest.TestCase):
         )
         self.assertEqual(timestamp, "2026-01-15 10:30:00 AM EST")
 
+    def test_split_recipients_handles_commas_and_spaces(self) -> None:
+        recipients = main.split_recipients(" +13155551234, +13155550000 ,, ")
+        self.assertEqual(recipients, ["+13155551234", "+13155550000"])
+
 
 if __name__ == "__main__":
     unittest.main()
